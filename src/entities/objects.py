@@ -18,6 +18,22 @@ class Attractor(BaseObject):
         return magnitude * direction
 
 
+class Cargo(BaseObject):
+    def __init__(self, obj_id: int, position: np.ndarray, radius: float = 0.5, stiffness: float = 80.0):
+        super().__init__(obj_id=obj_id, position=position, radius=radius, is_static=False)
+        self.stiffness = float(stiffness)
+
+    def force_on(self, other: BaseObject) -> np.ndarray:
+        delta = other.position - self.position
+        dist = np.linalg.norm(delta)
+        min_dist = self.radius + other.radius
+        if 0.0 < dist < min_dist:
+            direction = delta / dist
+            overlap = min_dist - dist
+            return self.stiffness * overlap * direction
+        return np.zeros(2, dtype=float)
+
+
 class Repeller(BaseObject):
     def __init__(self, obj_id: int, position: np.ndarray, strength: float = 10.0, cutoff: float = 5.0, radius: float = 0.6):
         super().__init__(obj_id=obj_id, position=position, radius=radius, is_static=True)
