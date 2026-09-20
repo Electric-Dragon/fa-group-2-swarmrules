@@ -1,0 +1,10 @@
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+
+# Test and notebook caches
+.pytest_cache/
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
