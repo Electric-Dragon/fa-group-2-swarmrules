@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntFlag
 from typing import Callable
 
@@ -8,7 +8,7 @@ import numpy as np
 
 
 class Cell(IntFlag):
-    """Bit flags used in Observation.vision."""
+    """Bit flags used in :class:`Observation.vision`."""
 
     EMPTY = 0
     WALL = 1
@@ -21,21 +21,17 @@ class Rules:
     """Teacher-defined rules for one scenario.
 
     Coordinates are measured in grid-cell units. ``grid_shape`` is
-    ``(height, width)``.
+    ``(height, width)``. Students may inspect these values but do not modify
+    them during a run.
     """
 
     grid_shape: tuple[int, int]
     n_agents: int
-
-    day_turns: int
-    night_turns: int
-    day_vision_radius: int
-    night_vision_radius: int
+    vision_radius: int
 
     battery_capacity: float
     initial_energy: float
-    night_recharge: float
-    rest_recharge_factor: float
+    recharge: float
 
     move_cost: float
     push_cost: float
@@ -53,11 +49,12 @@ class Rules:
 class Pheromone:
     """One student-defined pheromone channel.
 
-    ``decay`` is the fraction lost per turn.  For example ``0.02`` means
-    that 2% of the existing amount disappears each turn.
+    ``decay`` is the fraction lost per turn. ``color`` is optional and affects
+    visualization only; ``None`` keeps the channel hidden.
     """
 
     decay: float
+    color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -81,9 +78,9 @@ class Config:
 class Observation:
     """Information available to one agent for one turn.
 
-    ``vision`` is a square array of :class:`Cell` bit flags centered on the
-    agent's current grid cell.  Its size depends on the current day/night
-    phase.  ``pheromones`` always has shape ``(n_channels, 3, 3)``.
+    ``vision`` is a fixed-size square array of :class:`Cell` bit flags centered
+    on the agent's current grid cell. ``pheromones`` always has shape
+    ``(n_channels, 3, 3)``.
 
     ``cell_position`` gives the fractional x/y position inside the current
     grid cell; absolute world coordinates are deliberately not exposed.
@@ -99,22 +96,19 @@ class Observation:
 class Action:
     """Action requested by an agent for one turn.
 
-    ``move`` is a continuous x/y displacement request.  Moving into the cargo
-    generates a push automatically.  ``pheromones`` contains one non-negative
-    emission amount per configured pheromone channel.
+    ``move`` changes the agent position. ``push`` acts on the cargo, but only
+    if the agent overlaps the cargo after movement. ``pheromones`` contains one
+    non-negative emission amount per configured pheromone channel.
     """
 
     move: tuple[float, float] = (0.0, 0.0)
+    push: tuple[float, float] = (0.0, 0.0)
     pheromones: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
 class Scenario:
-    """Teacher-defined scenario.
-
-    Students normally obtain scenarios via ``load_scenario()`` and do not
-    construct or modify this object themselves.
-    """
+    """Teacher-defined scenario loaded with :func:`load_scenario`."""
 
     name: str
     rules: Rules

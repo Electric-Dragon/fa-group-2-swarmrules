@@ -17,4 +17,4 @@ __all__ = [
     "load_scenario",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.6.0"
