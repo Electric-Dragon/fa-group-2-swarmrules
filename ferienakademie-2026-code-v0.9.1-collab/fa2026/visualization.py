@@ -6,13 +6,28 @@ import matplotlib.pyplot as plt
 from matplotlib import colors, patches
 import numpy as np
 
+from .scenarios import Goal
+
+
+# Fixed visualization-only colors. Pheromone channels have no built-in meaning.
+PHEROMONE_COLORS = (
+    "#D55E00",  # vermillion
+    "#0072B2",  # blue
+    "#009E73",  # bluish green
+    "#CC79A7",  # reddish purple
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#F0E442",  # yellow
+    "#999999",  # gray
+)
+
 
 class Visualizer:
-    """Small Matplotlib visualizer used by ``execute(..., visualize=True)``."""
+    """Small Matplotlib visualizer used by ``fa.run(..., visualize=True)``."""
 
     def __init__(self, engine):
         self.engine = engine
-        self.fig, self.ax = plt.subplots(figsize=(9, 7))
+        self.fig, self.ax = plt.subplots(figsize=(10, 7))
         self._display_handle = None
         self._notebook = self._running_in_notebook()
         self._setup()
@@ -29,7 +44,7 @@ class Visualizer:
 
     def _setup(self) -> None:
         e = self.engine
-        h, w = e.rules.grid_shape
+        h, w = e.scenario.grid_shape
         self.ax.set_aspect("equal")
         self.ax.set_xlim(0, w)
         self.ax.set_ylim(0, h)
@@ -51,7 +66,7 @@ class Visualizer:
         )
 
         self.phero_img = None
-        if any(p.color is not None for p in e.config.pheromones):
+        if e.scenario.n_pheromones:
             self.phero_img = self.ax.imshow(
                 self._pheromone_rgba(),
                 origin="lower",
@@ -63,67 +78,47 @@ class Visualizer:
         ys, xs = np.nonzero(e.walls)
         for y, x in zip(ys, xs):
             self.ax.add_patch(
-                patches.Rectangle((x, y), 1, 1, facecolor="black", edgecolor="none", zorder=3)
+                patches.Rectangle(
+                    (x, y), 1, 1, facecolor="black", edgecolor="none", zorder=3
+                )
             )
 
         positions = e.agent_positions
-        agent_types = np.array([agent.agent_type for agent in e.agents], dtype=int)
-        unique_types = np.unique(agent_types)
-        if unique_types.size == 1:
-            agent_colors = "crimson"
-        else:
-            cmap = plt.get_cmap("tab10")
-            agent_colors = [cmap(int(t) % 10) for t in agent_types]
-            from matplotlib.lines import Line2D
-
-            handles = [
-                Line2D(
-                    [0],
-                    [0],
-                    marker="o",
-                    linestyle="",
-                    markersize=5,
-                    color=cmap(int(t) % 10),
-                    label=f"type {int(t)}",
-                )
-                for t in unique_types
-            ]
-            self.ax.legend(handles=handles, loc="upper left", framealpha=0.8, fontsize=8)
-
         self.agent_scatter = self.ax.scatter(
-            positions[:, 0], positions[:, 1], s=10, c=agent_colors, zorder=5
+            positions[:, 0], positions[:, 1], s=10, c="crimson", zorder=5
         )
 
-        size = e.rules.cargo_size
-        self.cargo_patch = patches.Rectangle(
-            (e.cargo_position[0] - size / 2, e.cargo_position[1] - size / 2),
-            size,
-            size,
-            facecolor="royalblue",
-            edgecolor="navy",
-            linewidth=1.5,
-            zorder=4,
-        )
-        self.ax.add_patch(self.cargo_patch)
+        self.cargo_patches: list[patches.Rectangle] = []
+        for center, size in zip(e.cargo_positions, e.cargo_sizes):
+            patch = patches.Rectangle(
+                (center[0] - size / 2, center[1] - size / 2),
+                size,
+                size,
+                facecolor="royalblue",
+                edgecolor="navy",
+                linewidth=1.5,
+                zorder=4,
+            )
+            self.ax.add_patch(patch)
+            self.cargo_patches.append(patch)
+
         self._update_title()
         self.fig.tight_layout()
 
     def _pheromone_rgba(self) -> np.ndarray:
-        """Blend all visible pheromone channels for plotting only.
+        """Blend all pheromone channels for plotting only.
 
-        Each visible channel is normalized independently by its current maximum,
-        so channels with different numerical scales remain distinguishable.
-        Channel colors never affect the simulation or the values seen by agents.
+        Each channel is normalized independently by its current maximum, so a
+        high-concentration channel does not automatically hide all others.
         """
+
         e = self.engine
-        h, w = e.rules.grid_shape
+        h, w = e.scenario.grid_shape
         weighted_rgb = np.zeros((h, w, 3), dtype=float)
         weight = np.zeros((h, w), dtype=float)
 
-        for channel, pheromone in enumerate(e.config.pheromones):
-            if pheromone.color is None:
-                continue
-            rgb = np.asarray(colors.to_rgb(pheromone.color), dtype=float)
+        for channel in range(e.scenario.n_pheromones):
+            rgb = np.asarray(colors.to_rgb(PHEROMONE_COLORS[channel]), dtype=float)
             field = e.pheromone_fields[channel]
             maximum = float(np.max(field))
             if maximum <= 0.0:
@@ -142,15 +137,29 @@ class Visualizer:
     def _update_title(self) -> None:
         e = self.engine
         mean_energy = float(np.mean(e.agent_energies)) if e.agents else 0.0
-        self.ax.set_title(f"turn {e.turn}  |  mean energy {mean_energy:.2f}")
+        parts = [f"turn {e.turn}", f"mean energy {mean_energy:.2f}"]
+
+        if e.scenario.goal in (Goal.CARGOES, Goal.BOTH):
+            delivered = sum(
+                e._cargo_inside_target(i) for i in range(e.scenario.n_cargoes)
+            )
+            parts.append(f"cargo in target {delivered}/{e.scenario.n_cargoes}")
+
+        if e.scenario.goal in (Goal.AGENTS, Goal.BOTH):
+            gathered = sum(e._agent_inside_target(a.position) for a in e.agents)
+            parts.append(f"agents in target {gathered}/{e.scenario.n_agents}")
+
+        self.ax.set_title("  |  ".join(parts))
 
     def draw(self, *, delay: float = 0.0) -> None:
         e = self.engine
         self.agent_scatter.set_offsets(e.agent_positions)
-        size = e.rules.cargo_size
-        self.cargo_patch.set_xy(
-            (e.cargo_position[0] - size / 2, e.cargo_position[1] - size / 2)
-        )
+        for patch, center, size in zip(
+            self.cargo_patches, e.cargo_positions, e.cargo_sizes
+        ):
+            patch.set_xy((center[0] - size / 2, center[1] - size / 2))
+            patch.set_width(size)
+            patch.set_height(size)
         if self.phero_img is not None:
             self.phero_img.set_data(self._pheromone_rgba())
         self._update_title()
@@ -174,8 +183,8 @@ class Visualizer:
             time.sleep(delay)
 
     def finish(self) -> None:
-        # In notebooks, keeping the Matplotlib figure open makes the inline
-        # backend display the final frame a second time when the cell ends.
+        # Closing notebook figures prevents the inline backend from printing the
+        # final frame a second time after the animation has already shown it.
         if self._notebook:
             plt.close(self.fig)
         else:
